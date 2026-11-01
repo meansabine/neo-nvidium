@@ -52,6 +52,16 @@ public class ConfigGuiBuilder {
         }
 
         groups.add(OptionGroup.createBuilder()
+                .add(OptionImpl.createBuilder(boolean.class, store)
+                        .setName(Component.translatable("nvidium.options.enable_shaders.name"))
+                        .setTooltip(Component.translatable("nvidium.options.enable_shaders.tooltip"))
+                        .setControl(TickBoxControl::new)
+                        .setImpact(OptionImpact.HIGH)
+                        .setEnabled(() -> Nvidium.IS_ENABLED)
+                        .setBinding((opts, value) -> opts.enable_shaders = value, opts -> opts.enable_shaders)
+                        .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
+                        .build()
+                )
                 .add(OptionImpl.createBuilder(int.class, store)
                         .setName(Component.translatable("nvidium.options.region_keep_distance.name"))
                         .setTooltip(Component.translatable("nvidium.options.region_keep_distance.tooltip"))

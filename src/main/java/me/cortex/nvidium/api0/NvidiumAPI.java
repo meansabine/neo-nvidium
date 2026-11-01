@@ -103,6 +103,18 @@ public class NvidiumAPI {
     }
 
     public static INvidiumShaderHook getShaderHook() {
+        if (!Nvidium.config.enable_shaders) {
+            return null;
+        }
         return shaderHook;
+    }
+
+    public static boolean areShadersEnabled() {
+        return Nvidium.config.enable_shaders;
+    }
+
+    public static void setShadersEnabled(boolean enabled) {
+        Nvidium.config.enable_shaders = enabled;
+        Nvidium.config.save();
     }
 }
