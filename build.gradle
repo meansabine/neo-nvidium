@@ -1,0 +1,111 @@
+/*
+ * Nvidium - High performance rendering engine for Minecraft
+ * Copyright (C) 2023 cortex
+ *
+ * Modified by 1Influence (2025) - Ported to NeoForge build system.
+ * Licensed under LGPL-3.0-only
+ */
+
+
+
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+
+    id 'net.neoforged.moddev' version '1.0.17'
+}
+
+tasks.named('wrapper', Wrapper) {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = project.mod_version
+group = project.mod_group_id
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+    }
+
+    maven { url "https://maven.irisshaders.net/"}
+}
+
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+
+neoForge {
+    version = project.neoforge_version
+
+
+    runs {
+        client {
+            client()
+
+            jvmArguments.addAll("-Xmx8G", "-XX:+UseZGC")
+        }
+        server {
+            server()
+        }
+    }
+
+    mods {
+
+        "${project.mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+
+def gitCommitHash = { ->
+    def stdout = new ByteArrayOutputStream()
+    try {
+        exec {
+            commandLine 'git', 'rev-parse', '--short', 'HEAD'
+            standardOutput = stdout
+        }
+        return stdout.toString().trim()
+    } catch (Exception e) {
+        return "unknown"
+    }
+}
+
+
+processResources {
+    def buildProps = [
+            "version": project.version,
+            "commit": gitCommitHash(),
+            "minecraft_version": project.minecraft_version,
+            "mod_id": project.mod_id
+    ]
+
+
+    filesMatching("META-INF/neoforge.mods.toml") {
+        expand buildProps
+    }
+    inputs.properties(buildProps)
+}
+
+dependencies {
+
+
+    // --- Sodium ---
+
+    implementation "maven.modrinth:sodium:mc1.21.1-0.6.13-neoforge"
+
+    // --- Iris (Optional) ---
+    compileOnly "maven.modrinth:iris:${project.iris_version}"
+
+
+}
+
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
