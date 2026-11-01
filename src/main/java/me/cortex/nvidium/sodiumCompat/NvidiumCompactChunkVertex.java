@@ -9,6 +9,7 @@
 package me.cortex.nvidium.sodiumCompat;
 
 import net.caffeinemc.mods.sodium.api.util.ColorABGR;
+import net.caffeinemc.mods.sodium.api.util.ColorARGB;
 import net.caffeinemc.mods.sodium.api.util.ColorU8;
 import net.caffeinemc.mods.sodium.client.gl.attribute.GlVertexFormat;
 import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkVertexEncoder;
@@ -52,7 +53,7 @@ public class NvidiumCompactChunkVertex implements ChunkVertexType {
 
                 MemoryUtil.memPutInt(ptr + 0, (encodePosition(vertex.x) << 0) | (encodePosition(vertex.y) << 16));
                 MemoryUtil.memPutInt(ptr + 4, (encodePosition(vertex.z) << 0) | ((materialBits & 0xFF) << 16) | ((light & 0xFF) << 24));
-                MemoryUtil.memPutInt(ptr + 8, (encodeColor(vertex.color) << 0) | (((light >> 8) & 0xFF) << 24));
+                MemoryUtil.memPutInt(ptr + 8, (encodeColor(vertex.color, vertex.ao) << 0) | (((light >> 8) & 0xFF) << 24));
                 MemoryUtil.memPutInt(ptr + 12, encodeTexture(vertex.u, vertex.v));
 
                 ptr += STRIDE;
@@ -72,14 +73,8 @@ public class NvidiumCompactChunkVertex implements ChunkVertexType {
         return (int) ((MODEL_ORIGIN + v) * MODEL_SCALE_INV);
     }
 
-    private static int encodeColor(int color) {
-        var brightness = ColorU8.byteToNormalizedFloat(ColorABGR.unpackAlpha(color));
-
-        int r = ColorU8.normalizedFloatToByte(ColorU8.byteToNormalizedFloat(ColorABGR.unpackRed(color)) * brightness);
-        int g = ColorU8.normalizedFloatToByte(ColorU8.byteToNormalizedFloat(ColorABGR.unpackGreen(color)) * brightness);
-        int b = ColorU8.normalizedFloatToByte(ColorU8.byteToNormalizedFloat(ColorABGR.unpackBlue(color)) * brightness);
-
-        return ColorABGR.pack(r, g, b, 0x00);
+    private static int encodeColor(int color, float ao) {
+        return ColorARGB.mulRGB(color, ao) & 0x00FFFFFF;
     }
 
     private static int encodeTexture(float u, float v) {
