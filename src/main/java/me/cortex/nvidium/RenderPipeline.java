@@ -358,9 +358,6 @@ public class RenderPipeline {
             terrainRasterizer.raster(prevRegionCount, terrainCommandBuffer.getDeviceAddress());
             glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT);
         }
-        if (hook != null) {
-            hook.onPostRenderTerrain();
-        }
 
         //NOTE: For GL_REPRESENTATIVE_FRAGMENT_TEST_NV to work, depth testing must be disabled, or depthMask = false
         glEnable(GL_DEPTH_TEST);
@@ -438,6 +435,9 @@ public class RenderPipeline {
         glDisableClientState(GL_DRAW_INDIRECT_UNIFIED_NV);
         glDepthFunc(GL11C.GL_LEQUAL);
         glDisable(GL_DEPTH_TEST);
+        if (hook != null) {
+            hook.onPostRenderTerrain();
+        }
 
 
         //if ((err = glGetError()) != 0) {
