@@ -96,4 +96,13 @@ public class NvidiumAPI {
         }
     }
 
+    private static INvidiumShaderHook shaderHook = null;
+
+    public static void registerShaderHook(INvidiumShaderHook hook) {
+        shaderHook = hook;
+    }
+
+    public static INvidiumShaderHook getShaderHook() {
+        return shaderHook;
+    }
 }

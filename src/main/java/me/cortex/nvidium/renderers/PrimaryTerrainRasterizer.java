@@ -50,7 +50,11 @@ public class PrimaryTerrainRasterizer extends Phase {
     }
 
     public void raster(int regionCount, long commandAddr) {
-        shader.bind();
+        var hook = me.cortex.nvidium.api0.NvidiumAPI.getShaderHook();
+        Shader activeShader = (hook != null && hook.getCustomTerrainShader() != null)
+                ? hook.getCustomTerrainShader()
+                : this.shader;
+        activeShader.bind();
 
         Minecraft minecraft = Minecraft.getInstance();
 
@@ -62,6 +66,9 @@ public class PrimaryTerrainRasterizer extends Phase {
         GL45C.glBindSampler(1, lightSampler);
         setTexture(blockId, 0);
         setTexture(lightId, 1);
+        if (hook != null) {
+            hook.onBindTerrainTextures();
+        }
 
         glBufferAddressRangeNV(GL_DRAW_INDIRECT_ADDRESS_NV, 0, commandAddr, regionCount * 8L);
         glMultiDrawMeshTasksIndirectNV(0, regionCount, 0);

@@ -11,6 +11,7 @@ package me.cortex.nvidium;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import it.unimi.dsi.fastutil.ints.*;
+import me.cortex.nvidium.api0.INvidiumShaderHook;
 import me.cortex.nvidium.api0.NvidiumAPI;
 import me.cortex.nvidium.config.StatisticsLoggingLevel;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
@@ -171,6 +172,11 @@ public class RenderPipeline {
 
         if (sectionManager.getRegionManager().regionCount() == 0) {
             return;
+        }
+
+        INvidiumShaderHook hook = NvidiumAPI.getShaderHook();
+        if (hook != null) {
+            hook.onSetupFrame(frustum, crm, px, py, pz);
         }
 
         final int DEBUG_RENDER_LEVEL = 0;//0: no debug, 1: region debug, 2: section debug
@@ -343,10 +349,17 @@ public class RenderPipeline {
         //Bind the uniform, it doesnt get wiped between shader changes
         glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
 
+        if (hook != null) {
+            hook.onPreRenderTerrain(prevRegionCount, terrainCommandBuffer.getDeviceAddress());
+        }
+
         if (prevRegionCount != 0) {
             glEnable(GL_DEPTH_TEST);
             terrainRasterizer.raster(prevRegionCount, terrainCommandBuffer.getDeviceAddress());
             glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT);
+        }
+        if (hook != null) {
+            hook.onPostRenderTerrain();
         }
 
         //NOTE: For GL_REPRESENTATIVE_FRAGMENT_TEST_NV to work, depth testing must be disabled, or depthMask = false
@@ -460,6 +473,11 @@ public class RenderPipeline {
         //Need to rebind the uniform since it might have been wiped
         glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
 
+        INvidiumShaderHook hook = NvidiumAPI.getShaderHook();
+        if (hook != null) {
+            hook.onPreRenderTranslucent(prevRegionCount, translucencyCommandBuffer.getDeviceAddress());
+        }
+
         //Translucency sorting
         {
             glEnable(GL_DEPTH_TEST);
@@ -474,6 +492,10 @@ public class RenderPipeline {
             RenderSystem.disableBlend();
             RenderSystem.defaultBlendFunc();
             glDisable(GL_DEPTH_TEST);
+        }
+
+        if (hook != null) {
+            hook.onPostRenderTranslucent();
         }
 
         glDisableClientState(GL_UNIFORM_BUFFER_UNIFIED_NV);
