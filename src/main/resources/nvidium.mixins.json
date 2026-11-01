@@ -17,6 +17,7 @@
     "sodium.MixinRenderSection",
     "sodium.MixinRenderSectionManager",
     "sodium.MixinSodiumOptionsGUI",
+    "sodium.MixinSodiumGameOptionsDebugSettings",
     "sodium.MixinSodiumShaderLoader",
     "sodium.MixinSodiumWorldRenderer",
     "sodium.SodiumWorldRendererAccessor"

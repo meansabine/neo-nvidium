@@ -170,7 +170,6 @@ public class RenderPipeline {
     public void renderFrame(Viewport frustum, ChunkRenderMatrices crm, double px, double py, double pz) {//NOTE: can use any of the command list rendering commands to basicly draw X indirects using the same shader, thus allowing for terrain to be rendered very efficently
 
         if (sectionManager.getRegionManager().regionCount() == 0) {
-            Nvidium.LOGGER.info("[Nvidium DEBUG] renderFrame: 0 regions, skipping");
             return;
         }
 

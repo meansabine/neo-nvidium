@@ -60,8 +60,6 @@ public class SectionManager {
     }
 
     public void uploadChunkBuildResult(ChunkBuildOutput result) {
-        Nvidium.LOGGER.info("[Nvidium DEBUG] uploadChunkBuildResult called for section ({}, {}, {})",
-            result.render.getChunkX(), result.render.getChunkY(), result.render.getChunkZ());
         var output = ((IRepackagedResult)result).getOutput();
 
         RenderSection section = result.render;

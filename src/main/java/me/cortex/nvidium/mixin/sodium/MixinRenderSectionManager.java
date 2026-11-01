@@ -22,6 +22,9 @@ import net.caffeinemc.mods.sodium.client.render.chunk.RenderSectionManager;
 import net.caffeinemc.mods.sodium.client.render.chunk.region.RenderRegionManager;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.DefaultTerrainRenderPasses;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
+import net.caffeinemc.mods.sodium.client.render.chunk.translucent_sorting.data.TranslucentData;
+import net.caffeinemc.mods.sodium.client.render.chunk.translucent_sorting.trigger.CameraMovement;
+import net.caffeinemc.mods.sodium.client.render.chunk.translucent_sorting.trigger.SortTriggering;
 import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkVertexType;
 import net.caffeinemc.mods.sodium.client.render.texture.SpriteUtil;
 import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
@@ -41,6 +44,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import java.util.function.BiConsumer;
+import org.joml.Vector3dc;
 
 @Mixin(value = RenderSectionManager.class, remap = false)
 public abstract class MixinRenderSectionManager implements INvidiumWorldRendererGetter {
@@ -201,6 +206,26 @@ public abstract class MixinRenderSectionManager implements INvidiumWorldRenderer
             if (renderer != null) {
                 cir.setReturnValue(renderer.getAsyncBfsVisibilityCount());
             }
+        }
+    }
+
+    @Redirect(
+            method = "processChunkBuildResults",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/translucent_sorting/trigger/SortTriggering;integrateTranslucentData(Lnet/caffeinemc/mods/sodium/client/render/chunk/translucent_sorting/data/TranslucentData;Lnet/caffeinemc/mods/sodium/client/render/chunk/translucent_sorting/data/TranslucentData;Lorg/joml/Vector3dc;Ljava/util/function/BiConsumer;)V"
+            )
+    )
+    private void redirectIntegrateTranslucentData(SortTriggering instance, TranslucentData oldData, TranslucentData newData, Vector3dc cameraPos, BiConsumer<Long, Boolean> callback) {
+        if (!Nvidium.IS_ENABLED) {
+            instance.integrateTranslucentData(oldData, newData, cameraPos, callback);
+        }
+    }
+
+    @Inject(method = "processGFNIMovement", at = @At("HEAD"), cancellable = true)
+    private void cancelProcessGFNIMovement(CameraMovement movement, CallbackInfo ci) {
+        if (Nvidium.IS_ENABLED) {
+            ci.cancel();
         }
     }
 }
