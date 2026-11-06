@@ -43,3 +43,6 @@ vec2 decodeLightUV(Vertex v) {
     return vec2(light)/256.0;
 }
 
+uint decodeVertexMaterial(Vertex v) {
+    return (v.y >> 19) & 0x1Fu;
+}

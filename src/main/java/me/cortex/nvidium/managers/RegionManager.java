@@ -273,6 +273,11 @@ public class RegionManager {
         return this.regions[regionId] != null;
     }
 
+    public int getRegionSectionCount(int regionId) {
+        var region = this.regions[regionId];
+        return region == null ? 0 : region.count;
+    }
+
     public boolean isRegionVisible(Viewport frustum, int regionId) {
         var region = this.regions[regionId];
         if (region == null) {

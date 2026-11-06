@@ -113,7 +113,8 @@ public class SodiumResultCompatibility {
 
                         for (int j = 0; j < partVertexCount; j++) {
                             long base = src + (long) j * formatSize;
-                            byte flags = (byte) 0b100; // Mipping, No alpha cut
+                            int rawFlags = Byte.toUnsignedInt(MemoryUtil.memGetByte(base + 6L));
+                            byte flags = (byte) ((rawFlags & 0xF8) | 0b100); // Preserve 5-bit materialId, set Mipping, No alpha cut
                             MemoryUtil.memPutByte(base + 6L, flags);
 
                             float x = decodePosition(MemoryUtil.memGetShort(base));
@@ -206,7 +207,8 @@ public class SodiumResultCompatibility {
 
                 for (int j = 0; j < vertexCount; j++) {
                     long base = dst + (long) j * formatSize;
-                    byte flags = (byte) 0b100; // Mipping, No alpha cut
+                    int rawFlags = Byte.toUnsignedInt(MemoryUtil.memGetByte(base + 6L));
+                    byte flags = (byte) ((rawFlags & 0xF8) | 0b100); // Preserve 5-bit materialId, set Mipping, No alpha cut
                     MemoryUtil.memPutByte(base + 6L, flags);
 
                     updateSectionBounds(min, max, base);
@@ -223,12 +225,13 @@ public class SodiumResultCompatibility {
 
                 for (int j = 0; j < vertexCount; j++) {
                     long base = dst + (long) j * formatSize;
-                    short sflags = MemoryUtil.memGetByte(base + 6L);
+                    int rawFlags = Byte.toUnsignedInt(MemoryUtil.memGetByte(base + 6L));
+                    short sflags = (short) (rawFlags & 0x07);
                     short mipbits = (short) ((sflags & (3 << 1)) >> 1);
                     if (mipbits == 0b10 && IrisCheck.IRIS_LOADED) {
                         mipbits = 0b01;
                     }
-                    byte flags = (byte) (((sflags & 1) << 2) | mipbits);
+                    byte flags = (byte) ((rawFlags & 0xF8) | (((sflags & 1) << 2) | mipbits));
                     MemoryUtil.memPutByte(base + 6L, flags);
 
                     updateSectionBounds(min, max, base);

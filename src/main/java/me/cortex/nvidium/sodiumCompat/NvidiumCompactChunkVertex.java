@@ -39,6 +39,16 @@ public class NvidiumCompactChunkVertex implements ChunkVertexType {
     private static final float MODEL_SCALE_INV = POSITION_MAX_VALUE / MODEL_RANGE;
     private static final float TEXTURE_SCALE = (1.0f / TEXTURE_MAX_VALUE);
 
+    private static final ThreadLocal<Integer> CURRENT_MATERIAL_ID = ThreadLocal.withInitial(() -> 0);
+
+    public static void setCurrentMaterialId(int materialId) {
+        CURRENT_MATERIAL_ID.set(materialId & 0x1F);
+    }
+
+    public static int getCurrentMaterialId() {
+        return CURRENT_MATERIAL_ID.get();
+    }
+
     @Override
     public GlVertexFormat getVertexFormat() {
         return VERTEX_FORMAT;
@@ -47,12 +57,14 @@ public class NvidiumCompactChunkVertex implements ChunkVertexType {
     @Override
     public ChunkVertexEncoder getEncoder() {
         return (ptr, materialBits, vertices, sectionIndex) -> {
+            int matId = CURRENT_MATERIAL_ID.get() & 0x1F;
+            int packedMaterial = (materialBits & 0x07) | (matId << 3);
             for (int i = 0; i < 4; i++) {
                 var vertex = vertices[i];
                 int light = compactLight(vertex.light);
 
                 MemoryUtil.memPutInt(ptr + 0, (encodePosition(vertex.x) << 0) | (encodePosition(vertex.y) << 16));
-                MemoryUtil.memPutInt(ptr + 4, (encodePosition(vertex.z) << 0) | ((materialBits & 0xFF) << 16) | ((light & 0xFF) << 24));
+                MemoryUtil.memPutInt(ptr + 4, (encodePosition(vertex.z) << 0) | ((packedMaterial & 0xFF) << 16) | ((light & 0xFF) << 24));
                 MemoryUtil.memPutInt(ptr + 8, (encodeColor(vertex.color, vertex.ao) << 0) | (((light >> 8) & 0xFF) << 24));
                 MemoryUtil.memPutInt(ptr + 12, encodeTexture(vertex.u, vertex.v));
 

@@ -109,6 +109,10 @@ public class NvidiumAPI {
         return shaderHook;
     }
 
+    public static INvidiumShaderHook getRegisteredShaderHook() {
+        return shaderHook;
+    }
+
     public static boolean areShadersEnabled() {
         return Nvidium.config.enable_shaders;
     }
@@ -116,5 +120,23 @@ public class NvidiumAPI {
     public static void setShadersEnabled(boolean enabled) {
         Nvidium.config.enable_shaders = enabled;
         Nvidium.config.save();
+    }
+
+    /**
+     * Reads a raw GLSL source file from Nvidium's built-in {@code /assets/nvidium/shaders/} resources.
+     * Calling {@code Nvidium.class.getResourceAsStream} from inside Nvidium's own JPMS module avoids
+     * NeoForge module encapsulation restrictions when invoked by external shader pipeline mods.
+     */
+    public static String getCoreShaderSource(String relativePath) {
+        String clean = relativePath.startsWith("/") ? relativePath.substring(1) : relativePath;
+        String fullPath = "/assets/nvidium/shaders/" + clean;
+        try (java.io.InputStream in = Nvidium.class.getResourceAsStream(fullPath)) {
+            if (in == null) {
+                return null;
+            }
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            return null;
+        }
     }
 }

@@ -9,19 +9,25 @@
 package me.cortex.nvidium.renderers;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import me.cortex.nvidium.api0.INvidiumShaderHook;
+import me.cortex.nvidium.api0.NvidiumAPI;
 import me.cortex.nvidium.gl.shader.Shader;
-import me.cortex.nvidium.sodiumCompat.ShaderLoader;
 import me.cortex.nvidium.mixin.minecraft.LightMapAccessor;
+import me.cortex.nvidium.sodiumCompat.ShaderLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.ResourceLocation;
+import org.lwjgl.opengl.GL11C;
 import org.lwjgl.opengl.GL12C;
-import org.lwjgl.opengl.GL45;
-import org.lwjgl.opengl.GL45C;
+import org.lwjgl.opengl.GL33;
 
 import static me.cortex.nvidium.RenderPipeline.GL_DRAW_INDIRECT_ADDRESS_NV;
 import static me.cortex.nvidium.gl.shader.ShaderType.*;
 import static org.lwjgl.opengl.GL11C.*;
+import static org.lwjgl.opengl.GL33.glBindSampler;
 import static org.lwjgl.opengl.GL33.glGenSamplers;
+import static org.lwjgl.opengl.GL33.glSamplerParameteri;
 import static org.lwjgl.opengl.NVMeshShader.glMultiDrawMeshTasksIndirectNV;
 import static org.lwjgl.opengl.NVVertexBufferUnifiedMemory.glBufferAddressRangeNV;
 
@@ -36,47 +42,52 @@ public class TranslucentTerrainRasterizer extends Phase {
             .compile();
 
     public TranslucentTerrainRasterizer() {
-        GL45C.glSamplerParameteri(blockSampler, GL45C.GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-        GL45C.glSamplerParameteri(blockSampler, GL45C.GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        GL45C.glSamplerParameteri(blockSampler, GL45C.GL_TEXTURE_MIN_LOD, 0);
-        GL45C.glSamplerParameteri(blockSampler, GL45C.GL_TEXTURE_MAX_LOD, 4);
-        GL45C.glSamplerParameteri(lightSampler, GL_TEXTURE_WRAP_T, GL12C.GL_CLAMP_TO_EDGE);
-        GL45C.glSamplerParameteri(lightSampler, GL_TEXTURE_WRAP_S, GL12C.GL_CLAMP_TO_EDGE);
-        GL45C.glSamplerParameteri(lightSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        GL45C.glSamplerParameteri(lightSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glSamplerParameteri(blockSampler, GL11C.GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glSamplerParameteri(blockSampler, GL11C.GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glSamplerParameteri(blockSampler, GL12C.GL_TEXTURE_MIN_LOD, 0);
+        glSamplerParameteri(blockSampler, GL12C.GL_TEXTURE_MAX_LOD, 4);
+
+        glSamplerParameteri(lightSampler, GL_TEXTURE_WRAP_T, GL12C.GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(lightSampler, GL_TEXTURE_WRAP_S, GL12C.GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(lightSampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glSamplerParameteri(lightSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 
-    private static void setTexture(int textureId, int bindingPoint) {
+    private static void setTexture(int texId, int bindingPoint) {
         GlStateManager._activeTexture(33984 + bindingPoint);
-        GlStateManager._bindTexture(textureId);
+        GlStateManager._bindTexture(texId);
     }
 
-    // Translucency is rendered in a very cursed and incorrect way
-    // it hijacks the unassigned indirect command dispatch and uses that to dispatch the translucent chunks as well
     public void raster(int regionCount, long commandAddr) {
-        shader.bind();
+        INvidiumShaderHook hook = NvidiumAPI.getShaderHook();
+        Shader activeShader = shader;
+        if (hook != null && hook.getCustomTranslucentShader() != null) {
+            activeShader = hook.getCustomTranslucentShader();
+        }
+        activeShader.bind();
 
-        Minecraft minecraft = Minecraft.getInstance();
+        AbstractTexture blockTexture = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS);
+        AbstractTexture lightTexture = ((LightMapAccessor) Minecraft.getInstance().gameRenderer.lightTexture()).getTexture();
 
-        int blockId = minecraft.getTextureManager().getTexture(ResourceLocation.parse("textures/atlas/blocks.png")).getId();
+        glBindSampler(0, blockSampler);
+        glBindSampler(1, lightSampler);
+        setTexture(blockTexture.getId(), 0);
+        setTexture(lightTexture.getId(), 1);
 
-        int lightId = ((LightMapAccessor) minecraft.gameRenderer.lightTexture()).getTexture().getId();
+        if (hook != null) {
+            hook.onBindTranslucentTextures();
+        }
 
-        GL45C.glBindSampler(0, blockSampler);
-        GL45C.glBindSampler(1, lightSampler);
-        setTexture(blockId, 0);
-        setTexture(lightId, 1);
-
-        // the +8*6 is to offset to the unassigned dispatch
-        glBufferAddressRangeNV(GL_DRAW_INDIRECT_ADDRESS_NV, 0, commandAddr, regionCount * 8L); // Bind the command buffer
+        glBufferAddressRangeNV(GL_DRAW_INDIRECT_ADDRESS_NV, 0, commandAddr, regionCount * 8L);
         glMultiDrawMeshTasksIndirectNV(0, regionCount, 0);
-        GL45C.glBindSampler(0, 0);
-        GL45C.glBindSampler(1, 0);
+
+        glBindSampler(0, 0);
+        glBindSampler(1, 0);
     }
 
     public void delete() {
-        GL45.glDeleteSamplers(blockSampler);
-        GL45.glDeleteSamplers(lightSampler);
+        GL33.glDeleteSamplers(blockSampler);
+        GL33.glDeleteSamplers(lightSampler);
         shader.delete();
     }
 }

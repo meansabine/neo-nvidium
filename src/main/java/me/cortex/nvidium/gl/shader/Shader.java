@@ -77,7 +77,9 @@ public class Shader extends GlObject {
             int result = GL20C.glGetProgrami(program, GL20C.GL_LINK_STATUS);
 
             if (result != GL20C.GL_TRUE) {
-                throw new RuntimeException("Shader program linking failed, see log for details");
+                String log = GL20C.glGetProgramInfoLog(program);
+                GL20C.glDeleteProgram(program);
+                throw new RuntimeException("Shader program linking failed:\n" + log);
             }
         }
 
@@ -96,7 +98,7 @@ public class Shader extends GlObject {
             if (result != GL20C.GL_TRUE) {
                 GL20C.glDeleteShader(shader);
 
-                throw new RuntimeException("Shader compilation failed, see log for details");
+                throw new RuntimeException("Shader compilation failed (" + type + "):\n" + log);
             }
 
             return shader;

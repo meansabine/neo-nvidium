@@ -9,10 +9,11 @@
 package me.cortex.nvidium.mixin.sodium;
 
 import me.cortex.nvidium.NvidiumWorldRenderer;
+import me.cortex.nvidium.api0.INvidiumShaderHook;
+import me.cortex.nvidium.api0.NvidiumAPI;
 import me.cortex.nvidium.config.ConfigGuiBuilder;
 import me.cortex.nvidium.sodiumCompat.INvidiumWorldRendererGetter;
 import me.cortex.nvidium.sodiumCompat.NvidiumOptionFlags;
-import net.caffeinemc.mods.sodium.client.gui.SodiumGameOptions;
 import net.caffeinemc.mods.sodium.client.gui.SodiumOptionsGUI;
 import net.caffeinemc.mods.sodium.client.gui.options.*;
 import net.caffeinemc.mods.sodium.client.gui.options.storage.OptionStorage;
@@ -38,6 +39,20 @@ public abstract class MixinSodiumOptionsGUI {
     @Inject(method = "<init>", at = @At(value = "INVOKE", target = "Ljava/util/List;add(Ljava/lang/Object;)Z", ordinal = 3, shift = At.Shift.AFTER))
     private void addNvidiumOptions(Screen prevScreen, CallbackInfo ci) {
         ConfigGuiBuilder.addNvidiumGui(pages);
+    }
+
+    @Inject(method = "setPage", at = @At("HEAD"), cancellable = true)
+    private void nvidium$onSetPage(OptionPage page, CallbackInfo ci) {
+        if (page != null && page == ConfigGuiBuilder.SHADER_PACKS_PAGE) {
+            INvidiumShaderHook hook = NvidiumAPI.getRegisteredShaderHook();
+            if (hook != null) {
+                Screen shaderScreen = hook.createShaderConfigScreen((Screen) (Object) this);
+                if (shaderScreen != null) {
+                    Minecraft.getInstance().setScreen(shaderScreen);
+                    ci.cancel();
+                }
+            }
+        }
     }
 
     @Inject(method = "applyChanges", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;getWindow()Lcom/mojang/blaze3d/platform/Window;"), locals = LocalCapture.CAPTURE_FAILHARD)

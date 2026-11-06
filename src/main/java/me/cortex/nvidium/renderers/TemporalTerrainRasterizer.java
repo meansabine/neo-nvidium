@@ -8,6 +8,9 @@
 
 package me.cortex.nvidium.renderers;
 
+import com.mojang.blaze3d.platform.GlStateManager;
+import me.cortex.nvidium.api0.INvidiumShaderHook;
+import me.cortex.nvidium.api0.NvidiumAPI;
 import me.cortex.nvidium.gl.shader.Shader;
 import me.cortex.nvidium.sodiumCompat.ShaderLoader;
 import me.cortex.nvidium.mixin.minecraft.LightMapAccessor;
@@ -43,8 +46,17 @@ public class TemporalTerrainRasterizer extends Phase {
         GL45C.glSamplerParameteri(lightSampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 
+    private static void setTexture(int textureId, int bindingPoint) {
+        GlStateManager._activeTexture(33984 + bindingPoint);
+        GlStateManager._bindTexture(textureId);
+    }
+
     public void raster(int regionCount, long commandAddr) {
-        shader.bind();
+        INvidiumShaderHook hook = NvidiumAPI.getShaderHook();
+        Shader activeShader = (hook != null && hook.getCustomTemporalTerrainShader() != null)
+                ? hook.getCustomTemporalTerrainShader()
+                : this.shader;
+        activeShader.bind();
 
         Minecraft minecraft = Minecraft.getInstance();
 
@@ -52,11 +64,14 @@ public class TemporalTerrainRasterizer extends Phase {
 
         int lightId = ((LightMapAccessor) minecraft.gameRenderer.lightTexture()).getTexture().getId();
 
-        GL45C.glBindTextureUnit(0, blockId);
         GL45C.glBindSampler(0, blockSampler);
-
-        GL45C.glBindTextureUnit(1, lightId);
         GL45C.glBindSampler(1, lightSampler);
+        setTexture(blockId, 0);
+        setTexture(lightId, 1);
+
+        if (hook != null) {
+            hook.onBindTerrainTextures();
+        }
 
         glBufferAddressRangeNV(GL_DRAW_INDIRECT_ADDRESS_NV, 0, commandAddr, regionCount * 8L); // Bind the command buffer
         glMultiDrawMeshTasksIndirectNV(0, regionCount, 0);

@@ -17,6 +17,7 @@ import me.cortex.nvidium.config.StatisticsLoggingLevel;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
 import me.cortex.nvidium.gl.RenderDevice;
 import me.cortex.nvidium.gl.buffers.IDeviceMappedBuffer;
+import me.cortex.nvidium.gl.shader.Shader;
 import me.cortex.nvidium.managers.RegionManager;
 import me.cortex.nvidium.managers.RegionVisibilityTracker;
 import me.cortex.nvidium.managers.SectionManager;
@@ -28,8 +29,13 @@ import me.cortex.nvidium.util.UploadingBufferStream;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
 import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import org.joml.*;
 import org.lwjgl.opengl.GL11C;
+import org.lwjgl.opengl.GL12C;
+import org.lwjgl.opengl.GL33;
+import org.lwjgl.opengl.NVMeshShader;
 import org.lwjgl.system.MemoryUtil;
 
 import java.lang.Math;
@@ -74,6 +80,7 @@ public class RenderPipeline {
     private final IDeviceMappedBuffer regionVisibility;
     private final IDeviceMappedBuffer sectionVisibility;
     private final IDeviceMappedBuffer terrainCommandBuffer;
+    private final IDeviceMappedBuffer shadowCommandBuffer;
     private final IDeviceMappedBuffer translucencyCommandBuffer;
     private final IDeviceMappedBuffer regionSortingList;
     private final IDeviceMappedBuffer statisticsBuffer;
@@ -114,6 +121,7 @@ public class RenderPipeline {
         regionVisibility = device.createDeviceOnlyMappedBuffer(maxRegions);
         sectionVisibility = device.createDeviceOnlyMappedBuffer(maxRegions * 256L);
         terrainCommandBuffer = device.createDeviceOnlyMappedBuffer(maxRegions*8L);
+        shadowCommandBuffer = device.createDeviceOnlyMappedBuffer(maxRegions*8L);
         translucencyCommandBuffer = device.createDeviceOnlyMappedBuffer(maxRegions*8L);
         regionSortingList = device.createDeviceOnlyMappedBuffer(maxRegions*2L);
         this.transformationArray = device.createDeviceOnlyMappedBuffer(RegionManager.MAX_TRANSFORMATION_COUNT * (4*4*4));
@@ -163,8 +171,57 @@ public class RenderPipeline {
     }
 
     private int prevRegionCount;
+    private int shadowRegionCount;
     private int frameId;
     private boolean compiledForFog = false;
+    private final Vector3f cameraChunkDelta = new Vector3f();
+    private final Matrix4f mainTerrainMvp = new Matrix4f();
+    private int shadowBlockSampler = 0;
+
+    private void ensureShadowBlockSampler() {
+        if (shadowBlockSampler == 0) {
+            shadowBlockSampler = GL33.glGenSamplers();
+            GL33.glSamplerParameteri(shadowBlockSampler, GL11C.GL_TEXTURE_MIN_FILTER, GL11C.GL_NEAREST_MIPMAP_LINEAR);
+            GL33.glSamplerParameteri(shadowBlockSampler, GL11C.GL_TEXTURE_MAG_FILTER, GL11C.GL_NEAREST);
+            GL33.glSamplerParameteri(shadowBlockSampler, GL12C.GL_TEXTURE_MIN_LOD, 0);
+            GL33.glSamplerParameteri(shadowBlockSampler, GL12C.GL_TEXTURE_MAX_LOD, 4);
+        }
+    }
+
+    private void rasterizeTerrainDepth(Shader depthShader, Matrix4fc cameraRelativeLightVP) {
+        if (shadowRegionCount <= 0 || depthShader == null) {
+            return;
+        }
+        ensureShadowBlockSampler();
+
+        // Update MVP in sceneUniform (bytes 0..64) with lightVP translated by subchunk camera delta
+        Matrix4f shadowMvp = new Matrix4f(cameraRelativeLightVP).translate(cameraChunkDelta);
+        long addr = uploadStream.upload(sceneUniform, 0, 4 * 4 * 4);
+        shadowMvp.getToAddress(addr);
+        uploadStream.commit();
+        glMemoryBarrier(GL_UNIFORM_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
+        glBufferAddressRangeNV(GL_DRAW_INDIRECT_ADDRESS_NV, 0, shadowCommandBuffer.getDeviceAddress(), shadowRegionCount * 8L);
+
+        depthShader.bind();
+
+        AbstractTexture blockAtlas = Minecraft.getInstance().getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS);
+        GlStateManager._activeTexture(GL33.GL_TEXTURE0);
+        GlStateManager._bindTexture(blockAtlas.getId());
+        GL33.glBindSampler(0, shadowBlockSampler);
+
+        NVMeshShader.glMultiDrawMeshTasksIndirectNV(0, shadowRegionCount, 0);
+
+        GL33.glBindSampler(0, 0);
+
+        // Restore main camera MVP in sceneUniform
+        long restoreAddr = uploadStream.upload(sceneUniform, 0, 4 * 4 * 4);
+        mainTerrainMvp.getToAddress(restoreAddr);
+        uploadStream.commit();
+        glMemoryBarrier(GL_UNIFORM_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+        glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
+    }
 
     //TODO FIXME: regions that where in frustum but are now out of frustum must have the visibility data cleared
     // this is due to funny issue of pain where the section was "visible" last frame cause it didnt get ticked
@@ -182,19 +239,8 @@ public class RenderPipeline {
         final int DEBUG_RENDER_LEVEL = 0;//0: no debug, 1: region debug, 2: section debug
         final boolean WRITE_DEPTH = false;
 
-        /*
-        for (int i = 0; i <3*3*3;i++) {
-            new NvidiumAPI("nvidium").setRegionTransformId(1, i%3, (i/3)%3, ((i/3)/3)%3);
-        }
-        new NvidiumAPI("nvidium").setTransformation(1, new Matrix4f().identity().scale(1,1  ,1));
-        new NvidiumAPI("nvidium").setOrigin(1, 0,0,0);
-           */
-
         Vector3i blockPos = new Vector3i(((int)Math.floor(px)), ((int)Math.floor(py)), ((int)Math.floor(pz)));
         Vector3i chunkPos = new Vector3i(blockPos.x>>4,blockPos.y>>4,blockPos.z>>4);
-        //  /tp @p 0.0 -1.62 0.0 0 0
-        //Clear the first gl error, not our fault
-        //glGetError();
 
         int screenWidth = Minecraft.getInstance().getWindow().getScreenWidth();
         int screenHeight = Minecraft.getInstance().getWindow().getScreenHeight();
@@ -209,11 +255,20 @@ public class RenderPipeline {
 
             //The region data indicies is located at the end of the sceneUniform
             IntSortedSet regions = new IntAVLTreeSet();
+            IntArrayList shadowRegionList = hook != null ? new IntArrayList() : null;
             for (int i = 0; i < rm.maxRegionIndex(); i++) {
                 if (!rm.regionExists(i)) continue;
                 if ((Nvidium.config.region_keep_distance != 256 && Nvidium.config.region_keep_distance != 32) && !rm.withinSquare(Nvidium.config.region_keep_distance+4, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
                     removeRegion(i);
                     continue;
+                }
+
+                // Collect all nearby regions (360 degrees around the player) for the shadow pass, independent of camera frustum
+                if (shadowRegionList != null && rm.withinSquare(22, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
+                    int secCount = rm.getRegionSectionCount(i);
+                    if (secCount > 0) {
+                        shadowRegionList.add((secCount << 16) | (i & 0xFFFF));
+                    }
                 }
 
                 if (rm.isRegionVisible(frustum, i)) {
@@ -240,7 +295,28 @@ public class RenderPipeline {
             }
 
             regionMap = new short[regions.size()];
-            if (visibleRegions == 0) return;
+            if (visibleRegions == 0) {
+                prevRegionCount = 0;
+                shadowRegionCount = 0;
+                if (hook != null) {
+                    hook.onPreRenderTerrain(0, 0);
+                    hook.onPostRenderTerrain();
+                }
+                return;
+            }
+            if (shadowRegionList != null && !shadowRegionList.isEmpty()) {
+                shadowRegionCount = shadowRegionList.size();
+                long shadowCmdUpload = uploadStream.upload(shadowCommandBuffer, 0, (long) shadowRegionCount * 8L);
+                for (int k = 0; k < shadowRegionCount; k++) {
+                    int packed = shadowRegionList.getInt(k);
+                    int secCount = packed >>> 16;
+                    int regId = packed & 0xFFFF;
+                    MemoryUtil.memPutInt(shadowCmdUpload + ((long) k << 3), secCount);
+                    MemoryUtil.memPutInt(shadowCmdUpload + ((long) k << 3) + 4, regId << 8);
+                }
+            } else {
+                shadowRegionCount = 0;
+            }
             long addr = uploadStream.upload(sceneUniform, SCENE_SIZE, visibleRegions*2);
             queryAddr = addr;//This is ungodly hacky
             int j = 0;
@@ -258,11 +334,12 @@ public class RenderPipeline {
         {
             Vector3f delta = new Vector3f((float) (px-(chunkPos.x<<4)), (float) (py-(chunkPos.y<<4)), (float) (pz-(chunkPos.z<<4)));
             delta.negate();
+            this.cameraChunkDelta.set(delta);
             long addr = uploadStream.upload(sceneUniform, 0, SCENE_SIZE);
-            new Matrix4f(crm.projection())
+            this.mainTerrainMvp.set(crm.projection())
                     .mul(crm.modelView())
-                    .translate(delta)//Translate the subchunk position
-                    .getToAddress(addr);
+                    .translate(delta);//Translate the subchunk position
+            this.mainTerrainMvp.getToAddress(addr);
             addr += 4*4*4;
             if (this.compiledForFog) {
                 new Matrix4f(crm.projection())
@@ -337,17 +414,34 @@ public class RenderPipeline {
 
         TickableManager.TickAll();
 
-        //if ((err = glGetError()) != 0) {
-        //    throw new IllegalStateException("GLERROR: "+err);
-        //}
-
-
         glEnableClientState(GL_UNIFORM_BUFFER_UNIFIED_NV);
         glEnableClientState(GL_VERTEX_ATTRIB_ARRAY_UNIFIED_NV);
         glEnableClientState(GL_ELEMENT_ARRAY_UNIFIED_NV);
         glEnableClientState(GL_DRAW_INDIRECT_UNIFIED_NV);
         //Bind the uniform, it doesnt get wiped between shader changes
         glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
+
+        if (hook != null && shadowRegionCount != 0) {
+            final int shadowRegions = shadowRegionCount;
+            final long shadowCmdAddr = shadowCommandBuffer.getDeviceAddress();
+            hook.onShadowPass(new INvidiumShaderHook.ShadowPassContext() {
+                @Override
+                public int regionCount() {
+                    return shadowRegions;
+                }
+
+                @Override
+                public long commandBufferAddress() {
+                    return shadowCmdAddr;
+                }
+
+                @Override
+                public void drawOpaqueTerrainDepth(Shader depthShader, Matrix4fc cameraRelativeLightVP) {
+                    rasterizeTerrainDepth(depthShader, cameraRelativeLightVP);
+                }
+            });
+            glBufferAddressRangeNV(GL_UNIFORM_BUFFER_ADDRESS_NV, 0, sceneUniform.getDeviceAddress(), SCENE_SIZE);
+        }
 
         if (hook != null) {
             hook.onPreRenderTerrain(prevRegionCount, terrainCommandBuffer.getDeviceAddress());
@@ -438,11 +532,6 @@ public class RenderPipeline {
         if (hook != null) {
             hook.onPostRenderTerrain();
         }
-
-
-        //if ((err = glGetError()) != 0) {
-        //    throw new IllegalStateException("GLERROR: "+err);
-        //}
     }
 
     void enqueueRegionSort(int regionId) {
@@ -457,11 +546,6 @@ public class RenderPipeline {
     public void removeARegion() {
         removeRegion(regionVisibilityTracking.findMostLikelyLeastSeenRegion(sectionManager.getRegionManager().maxRegionIndex()));
     }
-
-    /*
-    private void setRegionVisible(long rid) {
-        glClearNamedBufferSubData(regionVisibility.getId(), GL_R8UI, rid, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, new int[]{(byte)(1)});
-    }*/
 
     //Translucency is rendered in a very cursed and incorrect way
     // it hijacks the unassigned indirect command dispatch and uses that to dispatch the translucent chunks as well
@@ -479,7 +563,7 @@ public class RenderPipeline {
         }
 
         //Translucency sorting
-        {
+        if (prevRegionCount != 0) {
             glEnable(GL_DEPTH_TEST);
             RenderSystem.enableBlend();
             RenderSystem.blendFuncSeparate(
@@ -532,6 +616,7 @@ public class RenderPipeline {
         regionVisibility.delete();
         sectionVisibility.delete();
         terrainCommandBuffer.delete();
+        shadowCommandBuffer.delete();
         translucencyCommandBuffer.delete();
         regionSortingList.delete();
 
@@ -543,6 +628,11 @@ public class RenderPipeline {
         regionSectionSorter.delete();
         this.transformationArray.delete();
         this.originOffsetArray.delete();
+
+        if (shadowBlockSampler != 0) {
+            GL33.glDeleteSamplers(shadowBlockSampler);
+            shadowBlockSampler = 0;
+        }
 
         if (statisticsBuffer != null) {
             statisticsBuffer.delete();

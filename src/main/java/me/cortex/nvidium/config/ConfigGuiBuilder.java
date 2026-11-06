@@ -10,6 +10,7 @@ package me.cortex.nvidium.config;
 
 import com.google.common.collect.ImmutableList;
 import me.cortex.nvidium.Nvidium;
+import me.cortex.nvidium.api0.NvidiumAPI;
 import me.cortex.nvidium.sodiumCompat.NvidiumOptionFlags;
 import net.caffeinemc.mods.sodium.client.gui.options.*;
 import net.caffeinemc.mods.sodium.client.gui.options.control.ControlValueFormatter;
@@ -23,6 +24,7 @@ import java.util.List;
 
 public class ConfigGuiBuilder {
     private static final NvidiumConfigStore store = new NvidiumConfigStore();
+    public static OptionPage SHADER_PACKS_PAGE = null;
 
     public static void addNvidiumGui(List<OptionPage> pages) {
         List<OptionGroup> groups = new ArrayList<>();
@@ -171,6 +173,21 @@ public class ConfigGuiBuilder {
 
         if (Nvidium.IS_COMPATIBLE) {
             pages.add(new OptionPage(Component.translatable("nvidium.options.pages.nvidium"), ImmutableList.copyOf(groups)));
+        }
+
+        if (NvidiumAPI.getRegisteredShaderHook() != null) {
+            OptionGroup dummyGroup = OptionGroup.createBuilder()
+                    .add(OptionImpl.createBuilder(boolean.class, store)
+                            .setName(Component.literal("Open Nvidium Shader Packs"))
+                            .setTooltip(Component.literal("Configure Nvidium Shader Packs, Pipeline Settings, and Pack Options"))
+                            .setControl(TickBoxControl::new)
+                            .setImpact(OptionImpact.LOW)
+                            .setBinding((opts, val) -> {}, opts -> Nvidium.config.enable_shaders)
+                            .setFlags()
+                            .build())
+                    .build();
+            SHADER_PACKS_PAGE = new OptionPage(Component.literal("Shader Packs..."), ImmutableList.of(dummyGroup));
+            pages.add(SHADER_PACKS_PAGE);
         }
     }
 }
